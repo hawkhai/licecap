@@ -1041,7 +1041,10 @@ static WDL_DLGRET liceCapMainProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM
       UpdateCaption(hwndDlg);
       UpdateStatusText(hwndDlg);
 
-      SetTimer(hwndDlg,1,30,NULL);
+      { // uElapse 是以毫秒指定的计时间隔值
+          const int uElapse = 15; // 15 毫秒。
+          SetTimer(hwndDlg, 1, uElapse, NULL);
+      }
 
       if (!GetAsyncKeyState(VK_SHIFT))
       {
