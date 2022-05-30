@@ -25,6 +25,9 @@
     <Filter Include="Source Files\WDL\lice\zlib">
       <UniqueIdentifier>{05e1f7c5-8463-43a2-a648-4b03407419f0}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Source Files\encoder">
+      <UniqueIdentifier>{dfbc6546-f9ed-4562-ba3d-8aa000046bca}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\licecap_ui.cpp">
@@ -172,6 +175,15 @@
     </ClInclude>
     <ClInclude Include="..\..\WDL\lice\lice_text.h">
       <Filter>Source Files\WDL\lice</Filter>
+    </ClInclude>
+    <ClInclude Include="..\encoder\base_encoder.h">
+      <Filter>Source Files\encoder</Filter>
+    </ClInclude>
+    <ClInclude Include="..\encoder\gif_encoder.h">
+      <Filter>Source Files\encoder</Filter>
+    </ClInclude>
+    <ClInclude Include="..\encoder\log_encoder.h">
+      <Filter>Source Files\encoder</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

@@ -30,6 +30,8 @@
 #include "../WDL/mutex.h"
 #include "../WDL/wdlcstring.h"
 
+#include "encoder/gif_encoder.h"
+#include "encoder/log_encoder.h"
 
 //#define TEST_MULTIPLE_MODES
 
@@ -59,8 +61,8 @@
 
 #else
 
-  #define LICE_CreateSysBitmap(w,h) new LICE_SysBitmap(w,h)
-  #define LICE_CreateMemBitmap(w,h) new LICE_MemBitmap(w,h)
+#define LICE_CreateSysBitmap(w,h) new LICE_SysBitmap(w,h)
+#define LICE_CreateMemBitmap(w,h) new LICE_MemBitmap(w,h)
 
   #include "../WDL/lice/lice_lcf.h"
   #include "../WDL/filebrowse.h"
@@ -83,136 +85,6 @@ HINSTANCE g_hInst;
 
 #define MIN_SIZE_X 160
 #define MIN_SIZE_Y 120
-
-
-
-class gif_encoder
-{
-
-  LICE_IBitmap *lastbm; // set if a new frame is in progress
-  void *ctx; 
-
-  int lastbm_coords[4]; // coordinates of previous frame which need to be updated, [2], [3] will always be >0 if in progress
-  int lastbm_accumdelay; // delay of previous frame which is latent
-  int loopcnt;
-  LICE_pixel trans_mask;
-
-public:
-
-
-  gif_encoder(void *gifctx, int use_loopcnt, int trans_chan_mask=0xff)
-  {
-    lastbm = NULL;
-    memset(lastbm_coords,0,sizeof(lastbm_coords));
-    lastbm_accumdelay = 0;
-    ctx=gifctx;
-    loopcnt=use_loopcnt;
-    trans_mask = LICE_RGBA(trans_chan_mask,trans_chan_mask,trans_chan_mask,0);
-  }
-  ~gif_encoder()
-  {
-    frame_finish();
-    LICE_WriteGIFEnd(ctx);
-    delete lastbm;
-  }
-  
-  
-  bool frame_compare(LICE_IBitmap *bm, int diffs[4])
-  {
-    diffs[0]=diffs[1]=0;
-    diffs[2]=bm->getWidth();
-    diffs[3]=bm->getHeight();
-    return !lastbm || LICE_BitmapCmpEx(lastbm, bm, trans_mask,diffs);
-  }
-  
-  void frame_finish()
-  {
-    if (ctx && lastbm && lastbm_coords[2] > 0 && lastbm_coords[3] > 0)
-    {
-      LICE_SubBitmap bm(lastbm, lastbm_coords[0],lastbm_coords[1], lastbm_coords[2],lastbm_coords[3]);
-      
-      int del = lastbm_accumdelay;
-      if (del<1) del=1;
-      LICE_WriteGIFFrame(ctx,&bm,lastbm_coords[0],lastbm_coords[1],true,del,loopcnt);
-    }
-    lastbm_accumdelay=0;
-    lastbm_coords[2]=lastbm_coords[3]=0;
-  }
-  
-  void frame_advancetime(int amt)
-  {
-    lastbm_accumdelay+=amt;
-  }
-
-  typedef uint32_t        uint;
-  typedef signed char     schar;
-  typedef unsigned char   uchar;
-  typedef unsigned short  ushort;
-  typedef int64_t         int64;
-  typedef uint64_t        uint64;
-#define CV_BIG_INT(n)   n##LL
-#define CV_BIG_UINT(n)  n##ULL
-
-  // Computes 64-bit "cyclic redundancy check" sum, as specified in ECMA-182
-  uint64 crc64(const uchar* data, size_t size, uint64 crcx)
-  {
-      static uint64 table[256];
-      static bool initialized = false;
-
-      if (!initialized)
-      {
-          for (int i = 0; i < 256; i++)
-          {
-              uint64 c = i;
-              for (int j = 0; j < 8; j++)
-                  c = ((c & 1) ? CV_BIG_UINT(0xc96c5795d7870f42) : 0) ^ (c >> 1);
-              table[i] = c;
-          }
-          initialized = true;
-      }
-
-      uint64 crc = ~crcx;
-      for (size_t idx = 0; idx < size; idx++) {
-          crc = table[(uchar)crc ^ data[idx]] ^ (crc >> 8);
-      }
-      return ~crc;
-  }
-  
-  void frame_new(LICE_IBitmap *ref, int x, int y, int w, int h)
-  {
-    if (w > 0 && h > 0)
-    {
-      frame_finish();
-    
-      lastbm_coords[0]=x;
-      lastbm_coords[1]=y;
-      lastbm_coords[2]=w;
-      lastbm_coords[3]=h;
-    
-      if (!lastbm) lastbm = LICE_CreateMemBitmap(ref->getWidth(), ref->getHeight());
-      LICE_Blit(lastbm, ref, x, y, x,y, w,h, 1.0f, LICE_BLIT_MODE_COPY);
-
-      uint64 crc = 0;
-      int size = lastbm->getWidth() * lastbm->getHeight() * sizeof(LICE_pixel);
-      crc = crc64((const uchar*)lastbm->getBits(), size, 0);
-      static uint64 lastcrc = 0;
-      if (crc != lastcrc) {
-          printf("frame_new -- %lld %lld \r\n", crc, GetTickCount64());
-          lastcrc = crc;
-      }
-    }
-  }
-  
-  void clear_history() // forces next frame to be a fully new frame
-  {
-    frame_finish();
-    delete lastbm;
-    lastbm=NULL;
-  }
-  LICE_IBitmap *prev_bitmap() { return lastbm; }
-};
-
-
 
 int g_prefs; // &1=title frame, &2=giant font, &4=record mousedown, &8=timeline, &16=shift+space pause, &32=transparency-fu
 int g_stop_after_msec;
@@ -489,7 +361,7 @@ void EncodeFrameToVideo(VideoEncoder *enc, LICE_IBitmap *bm, bool force=false)
 
 #endif
 
-gif_encoder *g_cap_gif;
+base_encoder*g_cap_gif;
 #ifdef TEST_MULTIPLE_MODES
 gif_encoder  *g_cap_gif2,*g_cap_gif3; // only used if TEST_MULTIPLE_MODES defined
 #endif
@@ -1634,8 +1506,13 @@ static WDL_DLGRET liceCapMainProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM
 
               if (strlen(g_last_fn)>4 && !stricmp(g_last_fn+strlen(g_last_fn)-4,".gif"))
               {
-                void *ctx = LICE_WriteGIFBeginNoFrame(g_last_fn,w,h,(g_prefs&32) ? (-1)&~7 : 0,true);
-                if (ctx) g_cap_gif = new gif_encoder(ctx,g_gif_loopcount,0xf8);
+                  if (false) {
+                      void* ctxk = LICE_WriteGIFBeginNoFrame(g_last_fn, w, h, (g_prefs & 32) ? (-1) & ~7 : 0, true);
+                      if (ctxk) g_cap_gif = new gif_encoder(ctxk, g_gif_loopcount, 0xf8);
+                  }
+                  else {
+                      g_cap_gif = new log_encoder(g_last_fn, g_gif_loopcount, 0xf8);
+                  }
                 g_cap_gif_lastsec_written = -1;
 
 #ifdef TEST_MULTIPLE_MODES

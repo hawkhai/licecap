@@ -70,6 +70,9 @@
     <ClInclude Include="..\..\WDL\zlib\zconf.in.h" />
     <ClInclude Include="..\..\WDL\zlib\zlib.h" />
     <ClInclude Include="..\..\WDL\zlib\zutil.h" />
+    <ClInclude Include="..\encoder\base_encoder.h" />
+    <ClInclude Include="..\encoder\gif_encoder.h" />
+    <ClInclude Include="..\encoder\log_encoder.h" />
     <ClInclude Include="..\licecap_version.h" />
     <ClInclude Include="..\resource.h" />
   </ItemGroup>
