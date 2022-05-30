@@ -143,6 +143,40 @@ public:
   {
     lastbm_accumdelay+=amt;
   }
+
+  typedef uint32_t        uint;
+  typedef signed char     schar;
+  typedef unsigned char   uchar;
+  typedef unsigned short  ushort;
+  typedef int64_t         int64;
+  typedef uint64_t        uint64;
+#define CV_BIG_INT(n)   n##LL
+#define CV_BIG_UINT(n)  n##ULL
+
+  // Computes 64-bit "cyclic redundancy check" sum, as specified in ECMA-182
+  uint64 crc64(const uchar* data, size_t size, uint64 crcx)
+  {
+      static uint64 table[256];
+      static bool initialized = false;
+
+      if (!initialized)
+      {
+          for (int i = 0; i < 256; i++)
+          {
+              uint64 c = i;
+              for (int j = 0; j < 8; j++)
+                  c = ((c & 1) ? CV_BIG_UINT(0xc96c5795d7870f42) : 0) ^ (c >> 1);
+              table[i] = c;
+          }
+          initialized = true;
+      }
+
+      uint64 crc = ~crcx;
+      for (size_t idx = 0; idx < size; idx++) {
+          crc = table[(uchar)crc ^ data[idx]] ^ (crc >> 8);
+      }
+      return ~crc;
+  }
   
   void frame_new(LICE_IBitmap *ref, int x, int y, int w, int h)
   {
@@ -157,6 +191,15 @@ public:
     
       if (!lastbm) lastbm = LICE_CreateMemBitmap(ref->getWidth(), ref->getHeight());
       LICE_Blit(lastbm, ref, x, y, x,y, w,h, 1.0f, LICE_BLIT_MODE_COPY);
+
+      uint64 crc = 0;
+      int size = lastbm->getWidth() * lastbm->getHeight() * sizeof(LICE_pixel);
+      crc = crc64((const uchar*)lastbm->getBits(), size, 0);
+      static uint64 lastcrc = 0;
+      if (crc != lastcrc) {
+          printf("frame_new -- %lld %lld \r\n", crc, GetTickCount64());
+          lastcrc = crc;
+      }
     }
   }
   
@@ -973,12 +1016,14 @@ void WriteTextFrame(const char* str, int ms, bool isTitle, int w, int h, double 
   {
     int del=0;
     g_cap_lcf->OnFrame(g_cap_bm, del); 
+    OutputDebugStringA("g_cap_lcf->OnFrame(g_cap_bm, del);");
     if (!isTitle)
     {
       del = g_pause_time-g_last_frame_capture_time;
       del += ms;
     }
-    g_cap_lcf->OnFrame(g_cap_bm, del); 
+    g_cap_lcf->OnFrame(g_cap_bm, del);
+    OutputDebugStringA("g_cap_lcf->OnFrame(g_cap_bm, del);");
   }
 #endif
 }
@@ -1251,6 +1296,7 @@ static WDL_DLGRET liceCapMainProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM
                   g_dotitle=false;
                 }
                 g_cap_lcf->OnFrame(g_cap_bm,del);
+                OutputDebugStringA("g_cap_lcf->OnFrame(g_cap_bm,del);");
               }
 #endif
 
