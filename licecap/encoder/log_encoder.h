@@ -39,6 +39,7 @@ public:
     ~log_encoder()
     {
         frame_finish();
+        //LICE_WriteGIFEnd(ctx);
         delete lastbm;
     }
 

@@ -1,24 +1,20 @@
 #pragma once
-
-//#include "licecap.rc_mac_dlg"	    
-#include <stdio.h>	    
-#include <windows.h>	    
-#include <process.h>	    
-#include <multimon.h>	    
-#include "../WDL/swell/swell.h"	    
-#include "../WDL/queue.h"	    
-#include "../WDL/mutex.h"	    
-#include "../WDL/wdlcstring.h"	    
+#include <stdio.h>
+#include <windows.h>
+#include <process.h>
+#include <multimon.h>
+#include "../WDL/queue.h"
+#include "../WDL/mutex.h"
+#include "../WDL/wdlcstring.h"
 #define LICE_CreateSysBitmap(w,h) new LICE_SysBitmap(w,h)
 #define LICE_CreateMemBitmap(w,h) new LICE_MemBitmap(w,h)
-#include "../WDL/lice/lice_lcf.h"	    
-#include "../WDL/filebrowse.h"	    
-#include "../WDL/wdltypes.h"	    
-#include "../WDL/wingui/wndsize.h"	    
-#include "../WDL/wdlstring.h"	    
-#include "licecap_version.h"	    
-#include "resource.h"	    
-#include "../WDL/swell/swell-dlggen.h"	    
+#include "../WDL/lice/lice_lcf.h"
+#include "../WDL/filebrowse.h"
+#include "../WDL/wdltypes.h"
+#include "../WDL/wingui/wndsize.h"
+#include "../WDL/wdlstring.h"
+#include "licecap_version.h"
+#include "resource.h"
 
 class base_encoder {
 public:
