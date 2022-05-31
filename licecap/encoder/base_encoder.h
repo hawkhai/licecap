@@ -86,15 +86,16 @@ public:
 
         // ÕûÕÅÍ¼Ëã hash...
         uint64 crc = 0;
-        int size = ref->getWidth() * ref->getHeight() * sizeof(LICE_pixel);
-        crc = crc64((const uchar*)ref->getBits(), size, crc);
+        int imgsize = ref->getWidth() * ref->getHeight() * sizeof(LICE_pixel);
+        crc = crc64((const uchar*)ref->getBits(), imgsize, crc);
 
         static uint64 lastcrc = 0;
         if (crc != lastcrc) {
             lastcrc = crc;
-            char buffer[1024] = { 0 };
+            const int bufsize = 1024;
+            char buffer[bufsize] = { 0 };
             uint64 crcp = crc & 0x7fffffff;
-            sprintf(buffer, "{ \"tick\": %lld, \"crc\": %llu, \"w\": %d, \"h\": %d, \"pixel\": %d }\r\n", //
+            sprintf_s(buffer, bufsize, "{ \"tick\": %lld, \"crc\": %llu, \"w\": %d, \"h\": %d, \"pixel\": %d }\r\n", //
                 GetTickCount64(), crcp, ref->getWidth(), ref->getHeight(), sizeof(LICE_pixel)
             );
 
@@ -106,7 +107,7 @@ public:
 
             ShareMemoryDll::ShareMemoryWrite* sharememoryImage = getShareMemoryImage();
             if (sharememoryImage) {
-                sharememoryImage->write((ShareMemoryDll::ShareMemoryData*)ref->getBits(), size);
+                sharememoryImage->write((ShareMemoryDll::ShareMemoryData*)ref->getBits(), imgsize);
             }
 
             ShareMemoryDll::ShareMemoryWrite* sharememory = getShareMemory();

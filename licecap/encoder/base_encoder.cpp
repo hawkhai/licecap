@@ -8,6 +8,6 @@ ShareMemoryDll::ShareMemoryWrite* getShareMemory() {
 }
 
 ShareMemoryDll::ShareMemoryWrite* getShareMemoryImage() {
-    return &sharememory;
+    return &sharememoryImage;
 }
 
