@@ -20,6 +20,7 @@
 #include "../../ShareMemory/ShareMemoryDll/ShareMemoryDll.h"
 
 ShareMemoryDll::ShareMemoryWrite* getShareMemory();
+ShareMemoryDll::ShareMemoryWrite* getShareMemoryImage();
 
 class base_encoder {
 public:
@@ -88,14 +89,19 @@ public:
             lastcrc = crc;
             char buffer[1024];
             uint64 crcp = crc & 0x7fffffff;
-            sprintf(buffer, "{ \"tick\": %lld, \"crc\": %llu, \"w\": %d, \"h\": %d }\r\n", //
-                GetTickCount64(), crcp, ref->getWidth(), ref->getHeight()
+            sprintf(buffer, "{ \"tick\": %lld, \"crc\": %llu, \"w\": %d, \"h\": %d, \"pixel\": %d }\r\n", //
+                GetTickCount64(), crcp, ref->getWidth(), ref->getHeight(), sizeof(LICE_pixel)
             );
 
             std::string logPath = getLogFilePath();
             if (!logPath.empty()) {
                 logPath.append(".licecap.exe.log");
                 appendfile(logPath.c_str(), buffer, strlen(buffer));
+            }
+
+            ShareMemoryDll::ShareMemoryWrite* sharememoryImage = getShareMemoryImage();
+            if (sharememoryImage) {
+                sharememoryImage->write((ShareMemoryDll::ShareMemoryData*)ref->getBits(), size);
             }
 
             ShareMemoryDll::ShareMemoryWrite* sharememory = getShareMemory();
