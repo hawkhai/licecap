@@ -71,6 +71,8 @@ public:
 
             if (!lastbm) lastbm = LICE_CreateMemBitmap(ref->getWidth(), ref->getHeight());
             LICE_Blit(lastbm, ref, x, y, x, y, w, h, 1.0f, LICE_BLIT_MODE_COPY);
+
+            notifyHash(ref);
         }
     }
 
@@ -81,5 +83,9 @@ public:
         lastbm = NULL;
     }
     LICE_IBitmap* prev_bitmap() { return lastbm; }
+
+    virtual std::string getLogFilePath() override {
+        return "";
+    }
 };
 

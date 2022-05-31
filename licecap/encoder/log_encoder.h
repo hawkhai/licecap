@@ -6,24 +6,12 @@
 class log_encoder : public base_encoder {
 
     LICE_IBitmap* lastbm; // set if a new frame is in progress
-    std::string fpath;
+    std::string logPath;
 
     int lastbm_coords[4]; // coordinates of previous frame which need to be updated, [2], [3] will always be >0 if in progress
     int lastbm_accumdelay; // delay of previous frame which is latent
     int loopcnt;
     LICE_pixel trans_mask;
-
-    // 返回开始写文件的地址偏移。
-    static long appendfile(const char* fpath, const char* data, long length) {
-        FILE* fs = _wfopen(CA2W(fpath), L"ab");
-        assert(fs);
-        if (!fs) return -1;
-        fseek(fs, 0, SEEK_END);
-        long offset = ftell(fs);
-        fwrite(data, 1, length, fs);
-        fclose(fs);
-        return offset;
-    }
 
 public:
     log_encoder(const char* logPath, int use_loopcnt, int trans_chan_mask = 0xff)
@@ -31,8 +19,9 @@ public:
         lastbm = NULL;
         memset(lastbm_coords, 0, sizeof(lastbm_coords));
         lastbm_accumdelay = 0;
-        fpath = logPath;
-        fpath.append(".licecap.log.txt");
+        if (logPath) {
+            this->logPath = logPath;
+        }
         loopcnt = use_loopcnt;
         trans_mask = LICE_RGBA(trans_chan_mask, trans_chan_mask, trans_chan_mask, 0);
     }
@@ -86,21 +75,7 @@ public:
             if (!lastbm) lastbm = LICE_CreateMemBitmap(ref->getWidth(), ref->getHeight());
             LICE_Blit(lastbm, ref, ix, iy, ix, iy, iw, ih, 1.0f, LICE_BLIT_MODE_COPY);
 
-            // 整张图算 hash...
-            uint64 crc = 0;
-            int size = ref->getWidth() * ref->getHeight() * sizeof(LICE_pixel);
-            crc = crc64((const uchar*)ref->getBits(), size, crc);
-
-            static uint64 lastcrc = 0;
-            if (crc != lastcrc) {
-                lastcrc = crc;
-                char buffer[1024];
-                uint64 crcp = crc & 0x7fffffff;
-                sprintf(buffer, "{ \"tick\":%lld, \"crc\":%llu, \"w\":%d, \"h\":%d }\r\n", //
-                    GetTickCount64(), crcp, ref->getWidth(), ref->getHeight()
-                );
-                appendfile(fpath.c_str(), buffer, strlen(buffer));
-            }
+            notifyHash(ref);
         }
     }
 
@@ -111,5 +86,9 @@ public:
         lastbm = NULL;
     }
     LICE_IBitmap* prev_bitmap() { return lastbm; }
+
+    virtual std::string getLogFilePath() override {
+        return logPath;
+    }
 };
 

@@ -108,6 +108,9 @@
     <ClCompile Include="..\..\WDL\lice\lice_gif.cpp">
       <Filter>Source Files\WDL\lice</Filter>
     </ClCompile>
+    <ClCompile Include="..\encoder\base_encoder.cpp">
+      <Filter>Source Files\encoder</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\licecap_version.h">

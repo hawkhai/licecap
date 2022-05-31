@@ -361,9 +361,9 @@ void EncodeFrameToVideo(VideoEncoder *enc, LICE_IBitmap *bm, bool force=false)
 
 #endif
 
-base_encoder*g_cap_gif;
+base_encoder* g_cap_gif;
 #ifdef TEST_MULTIPLE_MODES
-gif_encoder  *g_cap_gif2,*g_cap_gif3; // only used if TEST_MULTIPLE_MODES defined
+gif_encoder *g_cap_gif2,*g_cap_gif3; // only used if TEST_MULTIPLE_MODES defined
 #endif
 int g_cap_gif_lastsec_written;
 
@@ -1509,7 +1509,14 @@ static WDL_DLGRET liceCapMainProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM
 
               if (strlen(g_last_fn)>4 && !stricmp(g_last_fn+strlen(g_last_fn)-4,".gif"))
               {
-                  if (false) {
+                  LPCSTR lpAppName = "licecap";
+                  LPCSTR lpKeyName = "mode";
+                  int mode = GetPrivateProfileInt(lpAppName, lpKeyName, -1, g_ini_file.Get());
+                  char buffer[32];
+                  sprintf(buffer, "%d", mode);
+                  WritePrivateProfileString(lpAppName, lpKeyName, buffer, g_ini_file.Get());
+
+                  if (mode <= 0) {
                       void* ctxk = LICE_WriteGIFBeginNoFrame(g_last_fn, w, h, (g_prefs & 32) ? (-1) & ~7 : 0, true);
                       if (ctxk) g_cap_gif = new gif_encoder(ctxk, g_gif_loopcount, 0xf8);
                   }

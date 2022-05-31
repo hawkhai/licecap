@@ -16,6 +16,11 @@
 #include "licecap_version.h"
 #include "resource.h"
 
+#include <atlstr.h>
+#include "../../ShareMemory/ShareMemoryDll/ShareMemoryDll.h"
+
+ShareMemoryDll::ShareMemoryWrite* getShareMemory();
+
 class base_encoder {
 public:
     virtual ~base_encoder() = default;
@@ -34,7 +39,7 @@ public:
 #define CV_BIG_UINT(n)  n##ULL
 
     // Computes 64-bit "cyclic redundancy check" sum, as specified in ECMA-182
-    uint64 crc64(const uchar* data, size_t size, uint64 crcx)
+    static uint64 crc64(const uchar* data, size_t size, uint64 crcx)
     {
         static uint64 table[256];
         static bool initialized = false;
@@ -56,5 +61,47 @@ public:
             crc = table[(uchar)crc ^ data[idx]] ^ (crc >> 8);
         }
         return ~crc;
+    }
+
+    // 返回开始写文件的地址偏移。
+    static long appendfile(const char* fpath, const char* data, long length) {
+        FILE* fs = _wfopen(CA2W(fpath), L"ab");
+        assert(fs);
+        if (!fs) return -1;
+        fseek(fs, 0, SEEK_END);
+        long offset = ftell(fs);
+        fwrite(data, 1, length, fs);
+        fclose(fs);
+        return offset;
+    }
+
+    virtual std::string getLogFilePath() = 0;
+
+    void notifyHash(LICE_IBitmap* ref) {
+        // 整张图算 hash...
+        uint64 crc = 0;
+        int size = ref->getWidth() * ref->getHeight() * sizeof(LICE_pixel);
+        crc = crc64((const uchar*)ref->getBits(), size, crc);
+
+        static uint64 lastcrc = 0;
+        if (crc != lastcrc) {
+            lastcrc = crc;
+            char buffer[1024];
+            uint64 crcp = crc & 0x7fffffff;
+            sprintf(buffer, "{ \"tick\": %lld, \"crc\": %llu, \"w\": %d, \"h\": %d }\r\n", //
+                GetTickCount64(), crcp, ref->getWidth(), ref->getHeight()
+            );
+
+            std::string logPath = getLogFilePath();
+            if (!logPath.empty()) {
+                logPath.append(".licecap.exe.log");
+                appendfile(logPath.c_str(), buffer, strlen(buffer));
+            }
+
+            ShareMemoryDll::ShareMemoryWrite* sharememory = getShareMemory();
+            if (sharememory) {
+                sharememory->write((ShareMemoryDll::ShareMemoryData*)buffer, strlen(buffer));
+            }
+        }
     }
 };

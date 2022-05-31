@@ -1,0 +1,3 @@
+[submodule "ShareMemory"]
+	path = ShareMemory
+	url = git@github.com:hawkhai/ShareMemory.git
