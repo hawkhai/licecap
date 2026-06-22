@@ -213,16 +213,293 @@ typedef struct {
 
 #ifdef _WIN32
 
-static void __LogicalToPhysicalPointForPerMonitorDPI(HWND hwnd, POINT *pt)
+static bool __LogicalToPhysicalPointForPerMonitorDPI(HWND hwnd, POINT *pt)
 {
   static BOOL (WINAPI *ltppfpmd)(HWND hwnd, LPPOINT lpPoint);
+  static BOOL (WINAPI *ltpp)(HWND hwnd, LPPOINT lpPoint);
   static bool tried;
   if (!tried)
   {
-    *(void **)&ltppfpmd = GetProcAddress(GetModuleHandle("USER32"),"LogicalToPhysicalPointForPerMonitorDPI");
+    HINSTANCE hUser = GetModuleHandle("USER32");
+    if (hUser)
+    {
+      *(void **)&ltppfpmd = GetProcAddress(hUser,"LogicalToPhysicalPointForPerMonitorDPI");
+      *(void **)&ltpp = GetProcAddress(hUser,"LogicalToPhysicalPoint");
+    }
     tried=true;
   }
-  if (ltppfpmd) ltppfpmd(hwnd,pt);
+  if (ltppfpmd) return !!ltppfpmd(hwnd,pt);
+  if (ltpp) return !!ltpp(hwnd,pt);
+  return false;
+}
+
+static bool __PhysicalToLogicalPointForPerMonitorDPI(HWND hwnd, POINT *pt)
+{
+  static BOOL (WINAPI *ptlpfpmd)(HWND hwnd, LPPOINT lpPoint);
+  static BOOL (WINAPI *ptlp)(HWND hwnd, LPPOINT lpPoint);
+  static bool tried;
+  if (!tried)
+  {
+    HINSTANCE hUser = GetModuleHandle("USER32");
+    if (hUser)
+    {
+      *(void **)&ptlpfpmd = GetProcAddress(hUser,"PhysicalToLogicalPointForPerMonitorDPI");
+      *(void **)&ptlp = GetProcAddress(hUser,"PhysicalToLogicalPoint");
+    }
+    tried=true;
+  }
+  if (ptlpfpmd) return !!ptlpfpmd(hwnd,pt);
+  if (ptlp) return !!ptlp(hwnd,pt);
+  return false;
+}
+
+static bool __LogicalToPhysicalRectForPerMonitorDPI(HWND hwnd, RECT *r)
+{
+  if (!r) return false;
+
+  POINT tl = { r->left, r->top };
+  POINT br = { r->right, r->bottom };
+  if (!__LogicalToPhysicalPointForPerMonitorDPI(hwnd, &tl) ||
+      !__LogicalToPhysicalPointForPerMonitorDPI(hwnd, &br))
+  {
+    return false;
+  }
+
+  r->left = tl.x;
+  r->top = tl.y;
+  r->right = br.x;
+  r->bottom = br.y;
+  return true;
+}
+
+static bool __PhysicalToLogicalRectForPerMonitorDPI(HWND hwnd, RECT *r)
+{
+  if (!r) return false;
+
+  POINT tl = { r->left, r->top };
+  POINT br = { r->right, r->bottom };
+  if (!__PhysicalToLogicalPointForPerMonitorDPI(hwnd, &tl) ||
+      !__PhysicalToLogicalPointForPerMonitorDPI(hwnd, &br))
+  {
+    return false;
+  }
+
+  r->left = tl.x;
+  r->top = tl.y;
+  r->right = br.x;
+  r->bottom = br.y;
+  return true;
+}
+
+static bool GetPhysicalCursorPoint(POINT *pt)
+{
+  static BOOL (WINAPI *gpcp)(LPPOINT lpPoint);
+  static bool tried;
+  if (!tried)
+  {
+    HINSTANCE hUser = GetModuleHandle("USER32");
+    if (hUser) *(void **)&gpcp = GetProcAddress(hUser,"GetPhysicalCursorPos");
+    tried=true;
+  }
+  return gpcp ? !!gpcp(pt) : !!GetCursorPos(pt);
+}
+
+static HWND WindowFromPhysicalPointCompat(POINT pt)
+{
+  static HWND (WINAPI *wfpp)(POINT Point);
+  static bool tried;
+  if (!tried)
+  {
+    HINSTANCE hUser = GetModuleHandle("USER32");
+    if (hUser) *(void **)&wfpp = GetProcAddress(hUser,"WindowFromPhysicalPoint");
+    tried=true;
+  }
+  return wfpp ? wfpp(pt) : WindowFromPoint(pt);
+}
+
+static void *SetThreadDpiAwarenessContextCompat(void *ctx)
+{
+  static void *(WINAPI *stdac)(void *);
+  static bool tried;
+  if (!tried)
+  {
+    HINSTANCE hUser = GetModuleHandle("USER32");
+    if (hUser) *(void **)&stdac = GetProcAddress(hUser,"SetThreadDpiAwarenessContext");
+    tried=true;
+  }
+  return stdac ? stdac(ctx) : NULL;
+}
+
+static void *EnterPerMonitorDpiAwareness()
+{
+  void *oldctx = SetThreadDpiAwarenessContextCompat((void *)(INT_PTR)-4);
+  if (!oldctx) oldctx = SetThreadDpiAwarenessContextCompat((void *)(INT_PTR)-3);
+  return oldctx;
+}
+
+static bool GetMonitorInfoCompat(HMONITOR mon, MONITORINFO *mi)
+{
+  static BOOL (WINAPI *gmi)(HMONITOR, LPMONITORINFO);
+  static bool tried;
+  if (!tried)
+  {
+    HINSTANCE hUser = GetModuleHandle("USER32");
+    if (hUser) *(void **)&gmi = GetProcAddress(hUser,"GetMonitorInfoA");
+    tried=true;
+  }
+  return gmi && mi ? !!gmi(mon, mi) : false;
+}
+
+static bool EnumDisplayMonitorsCompat(MONITORENUMPROC proc, LPARAM lParam)
+{
+  static BOOL (WINAPI *edm)(HDC, LPCRECT, MONITORENUMPROC, LPARAM);
+  static bool tried;
+  if (!tried)
+  {
+    HINSTANCE hUser = GetModuleHandle("USER32");
+    if (hUser) *(void **)&edm = GetProcAddress(hUser,"EnumDisplayMonitors");
+    tried=true;
+  }
+  return edm ? !!edm(NULL, NULL, proc, lParam) : false;
+}
+
+struct monitor_rect_map
+{
+  HMONITOR mon;
+  RECT logical;
+  RECT physical;
+};
+
+struct monitor_rect_maps
+{
+  monitor_rect_map maps[32];
+  int count;
+};
+
+// LICEcap runs DPI-unaware, so arbitrary desktop points need an explicit
+// mapping between its virtualized monitor rectangles and physical pixels.
+static BOOL CALLBACK EnumMonitorRectMap(HMONITOR mon, HDC, LPRECT, LPARAM lParam)
+{
+  monitor_rect_maps *maps = (monitor_rect_maps *)lParam;
+  if (!maps || maps->count >= (int)(sizeof(maps->maps)/sizeof(maps->maps[0]))) return TRUE;
+
+  MONITORINFO mi = { sizeof(mi), };
+  if (GetMonitorInfoCompat(mon, &mi))
+  {
+    monitor_rect_map *rec = maps->maps + maps->count++;
+    rec->mon = mon;
+    rec->logical = mi.rcMonitor;
+    rec->physical = mi.rcMonitor;
+  }
+  return TRUE;
+}
+
+static void LoadMonitorRectMaps(monitor_rect_maps *maps)
+{
+  if (!maps) return;
+  memset(maps, 0, sizeof(*maps));
+
+  EnumDisplayMonitorsCompat(EnumMonitorRectMap, (LPARAM)maps);
+
+  void *oldctx = EnterPerMonitorDpiAwareness();
+  if (oldctx)
+  {
+    for (int i = 0; i < maps->count; ++i)
+    {
+      MONITORINFO mi = { sizeof(mi), };
+      if (GetMonitorInfoCompat(maps->maps[i].mon, &mi))
+        maps->maps[i].physical = mi.rcMonitor;
+    }
+    SetThreadDpiAwarenessContextCompat(oldctx);
+  }
+}
+
+static bool GetPhysicalWindowRect(HWND hwnd, RECT *r)
+{
+  if (!hwnd || !r) return false;
+
+  void *oldctx = EnterPerMonitorDpiAwareness();
+  const bool ok = !!GetWindowRect(hwnd, r);
+  if (oldctx) SetThreadDpiAwarenessContextCompat(oldctx);
+  return ok && r->right > r->left && r->bottom > r->top;
+}
+
+static __int64 RectIntersectionArea(const RECT *a, const RECT *b)
+{
+  const int l = a->left > b->left ? a->left : b->left;
+  const int t = a->top > b->top ? a->top : b->top;
+  const int r = a->right < b->right ? a->right : b->right;
+  const int bot = a->bottom < b->bottom ? a->bottom : b->bottom;
+  return r > l && bot > t ? (__int64)(r - l) * (bot - t) : 0;
+}
+
+static __int64 RectCenterDistance(const RECT *a, const RECT *b)
+{
+  const __int64 ax = ((__int64)a->left + a->right) / 2;
+  const __int64 ay = ((__int64)a->top + a->bottom) / 2;
+  const __int64 bx = ((__int64)b->left + b->right) / 2;
+  const __int64 by = ((__int64)b->top + b->bottom) / 2;
+  const __int64 dx = ax - bx;
+  const __int64 dy = ay - by;
+  return dx * dx + dy * dy;
+}
+
+static int FindMonitorRectMap(const monitor_rect_maps *maps, const RECT *r, bool physical)
+{
+  int best = -1;
+  __int64 best_area = 0;
+  __int64 best_distance = 0;
+
+  for (int i = 0; maps && i < maps->count; ++i)
+  {
+    const RECT *mon = physical ? &maps->maps[i].physical : &maps->maps[i].logical;
+    const __int64 area = RectIntersectionArea(r, mon);
+    if (area > best_area)
+    {
+      best = i;
+      best_area = area;
+      best_distance = 0;
+    }
+    else if (!best_area)
+    {
+      const __int64 distance = RectCenterDistance(r, mon);
+      if (best < 0 || distance < best_distance)
+      {
+        best = i;
+        best_distance = distance;
+      }
+    }
+  }
+
+  return best;
+}
+
+static int MapMonitorCoord(int v, int src0, int src1, int dst0, int dst1)
+{
+  const int srcw = src1 - src0;
+  if (!srcw) return dst0;
+  return dst0 + MulDiv(v - src0, dst1 - dst0, srcw);
+}
+
+static bool MapRectBetweenMonitorSpaces(const RECT *src, RECT *dst, bool physical_to_logical)
+{
+  if (!src || !dst) return false;
+
+  monitor_rect_maps maps;
+  LoadMonitorRectMaps(&maps);
+  const int idx = FindMonitorRectMap(&maps, src, physical_to_logical);
+  if (idx < 0) return false;
+
+  const RECT *src_mon = physical_to_logical ? &maps.maps[idx].physical : &maps.maps[idx].logical;
+  const RECT *dst_mon = physical_to_logical ? &maps.maps[idx].logical : &maps.maps[idx].physical;
+
+  RECT out;
+  out.left = MapMonitorCoord(src->left, src_mon->left, src_mon->right, dst_mon->left, dst_mon->right);
+  out.right = MapMonitorCoord(src->right, src_mon->left, src_mon->right, dst_mon->left, dst_mon->right);
+  out.top = MapMonitorCoord(src->top, src_mon->top, src_mon->bottom, dst_mon->top, dst_mon->bottom);
+  out.bottom = MapMonitorCoord(src->bottom, src_mon->top, src_mon->bottom, dst_mon->top, dst_mon->bottom);
+  *dst = out;
+  return true;
 }
 
 void DoMouseCursor(LICE_IBitmap* sbm, HWND h, int xoffs, int yoffs)
@@ -718,13 +995,17 @@ static void ClearPickWindowFrame()
 static bool GetSelectableWindowRect(HWND hwnd, RECT *r)
 {
   if (!hwnd || !IsWindow(hwnd) || !IsWindowVisible(hwnd) || IsIconic(hwnd)) return false;
+  if (GetPhysicalWindowRect(hwnd, r)) return true;
+
   if (!GetWindowRect(hwnd, r)) return false;
+  if (!MapRectBetweenMonitorSpaces(r, r, false))
+    __LogicalToPhysicalRectForPerMonitorDPI(hwnd, r);
   return r->right > r->left && r->bottom > r->top;
 }
 
-static HWND FindSelectableWindowFromPoint(HWND owner, POINT pt, RECT *r)
+static HWND FindSelectableWindowFromPhysicalPoint(HWND owner, POINT pt, RECT *r)
 {
-  HWND hwnd = WindowFromPoint(pt);
+  HWND hwnd = WindowFromPhysicalPointCompat(pt);
   if (!hwnd) return NULL;
 
   HWND root = GetAncestor(hwnd, GA_ROOT);
@@ -743,10 +1024,10 @@ static HWND FindSelectableWindowFromPoint(HWND owner, POINT pt, RECT *r)
 static void UpdatePickWindowTarget(HWND owner)
 {
   POINT pt;
-  GetCursorPos(&pt);
+  GetPhysicalCursorPoint(&pt);
 
   RECT r;
-  HWND target = FindSelectableWindowFromPoint(owner, pt, &r);
+  HWND target = FindSelectableWindowFromPhysicalPoint(owner, pt, &r);
   if (target != s_pickwnd_target ||
       !s_pickwnd_have_rect ||
       !EqualRect(&r, &s_pickwnd_rect))
@@ -773,18 +1054,38 @@ static void FitCaptureRectToWindow(HWND hwndDlg, const RECT *capture_rect)
   HWND view = GetDlgItem(hwndDlg, IDC_VIEWRECT);
   if (!view) return;
 
-  RECT wnd, viewr;
-  GetWindowRect(hwndDlg, &wnd);
-  GetWindowRect(view, &viewr);
+  RECT target_view_phys = { cap.left - 1, cap.top - 1, cap.right + 1, cap.bottom + 1 };
 
-  RECT target_view = { cap.left - 1, cap.top - 1, cap.right + 1, cap.bottom + 1 };
+  for (int pass = 0; pass < 3; ++pass)
+  {
+    RECT wnd, viewr;
+    GetWindowRect(hwndDlg, &wnd);
+    GetWindowRect(view, &viewr);
 
-  const int new_w = (wnd.right - wnd.left) + (target_view.right - target_view.left) - (viewr.right - viewr.left);
-  const int new_h = (wnd.bottom - wnd.top) + (target_view.bottom - target_view.top) - (viewr.bottom - viewr.top);
-  const int new_x = target_view.left - (viewr.left - wnd.left);
-  const int new_y = target_view.top - (viewr.top - wnd.top);
+    RECT target_view = target_view_phys;
+    if (!MapRectBetweenMonitorSpaces(&target_view_phys, &target_view, true))
+      __PhysicalToLogicalRectForPerMonitorDPI(hwndDlg, &target_view);
 
-  SetWindowPos(hwndDlg, NULL, new_x, new_y, new_w, new_h, SWP_NOZORDER | SWP_NOACTIVATE);
+    const int new_w = (wnd.right - wnd.left) + (target_view.right - target_view.left) - (viewr.right - viewr.left);
+    const int new_h = (wnd.bottom - wnd.top) + (target_view.bottom - target_view.top) - (viewr.bottom - viewr.top);
+    const int new_x = target_view.left - (viewr.left - wnd.left);
+    const int new_y = target_view.top - (viewr.top - wnd.top);
+
+    SetWindowPos(hwndDlg, NULL, new_x, new_y, new_w, new_h, SWP_NOZORDER | SWP_NOACTIVATE);
+
+    RECT actual_view = {0,};
+    GetWindowRect(view, &actual_view);
+    if ((MapRectBetweenMonitorSpaces(&actual_view, &actual_view, false) ||
+         __LogicalToPhysicalRectForPerMonitorDPI(hwndDlg, &actual_view)) &&
+        abs((actual_view.left + 1) - cap.left) <= 1 &&
+        abs((actual_view.top + 1) - cap.top) <= 1 &&
+        abs((actual_view.right - 1) - cap.right) <= 1 &&
+        abs((actual_view.bottom - 1) - cap.bottom) <= 1)
+    {
+      break;
+    }
+  }
+
   UpdateDimBoxes(hwndDlg);
   InvalidateRect(hwndDlg, NULL, TRUE);
 }
