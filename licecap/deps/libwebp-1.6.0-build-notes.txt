@@ -1,0 +1,24 @@
+libwebp 1.6.0 DLL build notes
+
+These runtime DLLs were built from the official libwebp 1.6.0 source release:
+https://storage.googleapis.com/downloads.webmproject.org/releases/webp/libwebp-1.6.0.tar.gz
+
+The official Windows prebuilt package contains the WebP command-line tools,
+headers, and import libraries, but it does not ship libwebp.dll or
+libwebpmux.dll. LICEcap loads those DLLs at runtime for Animated WebP output,
+so this project carries DLL builds for Win32 and x64.
+
+Build commands used from the libwebp source root:
+
+cmd /c "call ""C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat"" -arch=x64 >nul && nmake /f Makefile.vc CFG=release-dynamic RTLIBCFG=static OBJDIR=output all"
+
+cmd /c "call ""C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat"" -arch=x86 >nul && nmake /f Makefile.vc CFG=release-dynamic RTLIBCFG=static OBJDIR=output_x86 all"
+
+Required runtime files:
+- libwebp.dll
+- libwebpmux.dll
+- libsharpyuv.dll
+
+License and patent grant files copied from the source release:
+- COPYING
+- PATENTS
