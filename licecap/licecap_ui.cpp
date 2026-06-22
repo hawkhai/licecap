@@ -514,7 +514,7 @@ void UpdateDimBoxes(HWND hwndDlg)
     if (rec && rec->last.left > 0)
     {
       int xmin=rec->last.left-4;     
-      static const unsigned short ids[] = { IDC_MAXFPS_LBL, IDC_MAXFPS, IDC_DIMLBL_1, IDC_XSZ, IDC_YSZ, IDC_DIMLBL };
+      static const unsigned short ids[] = { IDC_MAXFPS_LBL, IDC_MAXFPS, IDC_DIMLBL_1, IDC_XSZ, IDC_YSZ, IDC_DIMLBL, IDC_PICKWND };
       int i;
       for (i=0; i < sizeof(ids)/sizeof(ids[0]); ++i)
       {
@@ -676,6 +676,222 @@ void SaveRestoreRecRect(HWND hwndDlg, bool restore)
   }
 #endif
 }
+
+#ifdef _WIN32
+
+static WNDPROC s_pickwnd_oldproc;
+static bool s_pickwnd_active;
+static bool s_pickwnd_have_rect;
+static RECT s_pickwnd_rect;
+static HWND s_pickwnd_target;
+
+static void DrawPickWindowFrame(const RECT *r)
+{
+  if (!r) return;
+
+  HDC hdc = GetDC(NULL);
+  if (!hdc) return;
+
+  int old_rop = SetROP2(hdc, R2_NOTXORPEN);
+  HPEN pen = CreatePen(PS_SOLID, 3, RGB(255, 0, 0));
+  HGDIOBJ old_pen = SelectObject(hdc, pen);
+  HGDIOBJ old_brush = SelectObject(hdc, GetStockObject(HOLLOW_BRUSH));
+
+  Rectangle(hdc, r->left, r->top, r->right, r->bottom);
+
+  SelectObject(hdc, old_brush);
+  SelectObject(hdc, old_pen);
+  DeleteObject(pen);
+  SetROP2(hdc, old_rop);
+  ReleaseDC(NULL, hdc);
+}
+
+static void ClearPickWindowFrame()
+{
+  if (s_pickwnd_have_rect)
+  {
+    DrawPickWindowFrame(&s_pickwnd_rect);
+    s_pickwnd_have_rect = false;
+  }
+}
+
+static bool GetSelectableWindowRect(HWND hwnd, RECT *r)
+{
+  if (!hwnd || !IsWindow(hwnd) || !IsWindowVisible(hwnd) || IsIconic(hwnd)) return false;
+  if (!GetWindowRect(hwnd, r)) return false;
+  return r->right > r->left && r->bottom > r->top;
+}
+
+static HWND FindSelectableWindowFromPoint(HWND owner, POINT pt, RECT *r)
+{
+  HWND hwnd = WindowFromPoint(pt);
+  if (!hwnd) return NULL;
+
+  HWND root = GetAncestor(hwnd, GA_ROOT);
+  if (!root) root = hwnd;
+
+  if (root == owner || IsChild(owner, hwnd)) return NULL;
+  if (root == GetDesktopWindow()) return NULL;
+
+  char cls[64] = {0,};
+  GetClassName(root, cls, sizeof(cls));
+  if (!strcmp(cls, "Shell_TrayWnd") || !strcmp(cls, "Button")) return NULL;
+
+  return GetSelectableWindowRect(root, r) ? root : NULL;
+}
+
+static void UpdatePickWindowTarget(HWND owner)
+{
+  POINT pt;
+  GetCursorPos(&pt);
+
+  RECT r;
+  HWND target = FindSelectableWindowFromPoint(owner, pt, &r);
+  if (target != s_pickwnd_target ||
+      !s_pickwnd_have_rect ||
+      !EqualRect(&r, &s_pickwnd_rect))
+  {
+    ClearPickWindowFrame();
+    s_pickwnd_target = target;
+    if (target)
+    {
+      s_pickwnd_rect = r;
+      s_pickwnd_have_rect = true;
+      DrawPickWindowFrame(&s_pickwnd_rect);
+    }
+  }
+}
+
+static void FitCaptureRectToWindow(HWND hwndDlg, const RECT *capture_rect)
+{
+  if (!hwndDlg || !capture_rect || g_cap_state) return;
+
+  RECT cap = *capture_rect;
+  if (cap.right - cap.left < MIN_SIZE_X) cap.right = cap.left + MIN_SIZE_X;
+  if (cap.bottom - cap.top < MIN_SIZE_Y) cap.bottom = cap.top + MIN_SIZE_Y;
+
+  HWND view = GetDlgItem(hwndDlg, IDC_VIEWRECT);
+  if (!view) return;
+
+  RECT wnd, viewr;
+  GetWindowRect(hwndDlg, &wnd);
+  GetWindowRect(view, &viewr);
+
+  RECT target_view = { cap.left - 1, cap.top - 1, cap.right + 1, cap.bottom + 1 };
+
+  const int new_w = (wnd.right - wnd.left) + (target_view.right - target_view.left) - (viewr.right - viewr.left);
+  const int new_h = (wnd.bottom - wnd.top) + (target_view.bottom - target_view.top) - (viewr.bottom - viewr.top);
+  const int new_x = target_view.left - (viewr.left - wnd.left);
+  const int new_y = target_view.top - (viewr.top - wnd.top);
+
+  SetWindowPos(hwndDlg, NULL, new_x, new_y, new_w, new_h, SWP_NOZORDER | SWP_NOACTIVATE);
+  UpdateDimBoxes(hwndDlg);
+  InvalidateRect(hwndDlg, NULL, TRUE);
+}
+
+static void EndPickWindow(HWND button, bool apply)
+{
+  HWND owner = GetParent(button);
+  const bool have_target = s_pickwnd_target && s_pickwnd_have_rect;
+  RECT target_rect = s_pickwnd_rect;
+
+  ClearPickWindowFrame();
+  s_pickwnd_active = false;
+  s_pickwnd_target = NULL;
+
+  SendMessage(button, BM_SETSTATE, FALSE, 0);
+  SetWindowText(button, "Window");
+  if (GetCapture() == button) ReleaseCapture();
+
+  if (apply && have_target) FitCaptureRectToWindow(owner, &target_rect);
+}
+
+static LRESULT CALLBACK PickWindowButtonProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+  switch (uMsg)
+  {
+    case WM_LBUTTONDOWN:
+      if (!g_cap_state)
+      {
+        s_pickwnd_active = true;
+        s_pickwnd_target = NULL;
+        s_pickwnd_have_rect = false;
+        SetFocus(hwnd);
+        SetCapture(hwnd);
+        SendMessage(hwnd, BM_SETSTATE, TRUE, 0);
+        SetWindowText(hwnd, "...");
+        SetCursor(LoadCursor(NULL, IDC_CROSS));
+        UpdatePickWindowTarget(GetParent(hwnd));
+      }
+    return 0;
+
+    case WM_MOUSEMOVE:
+      if (s_pickwnd_active && GetCapture() == hwnd)
+      {
+        SetCursor(LoadCursor(NULL, IDC_CROSS));
+        UpdatePickWindowTarget(GetParent(hwnd));
+      }
+    return 0;
+
+    case WM_LBUTTONUP:
+      if (s_pickwnd_active)
+      {
+        EndPickWindow(hwnd, true);
+        return 0;
+      }
+    break;
+
+    case WM_RBUTTONDOWN:
+    case WM_CANCELMODE:
+      if (s_pickwnd_active)
+      {
+        EndPickWindow(hwnd, false);
+        return 0;
+      }
+    break;
+
+    case WM_KEYDOWN:
+      if (s_pickwnd_active && wParam == VK_ESCAPE)
+      {
+        EndPickWindow(hwnd, false);
+        return 0;
+      }
+    break;
+
+    case WM_CAPTURECHANGED:
+      if (s_pickwnd_active && (HWND)lParam != hwnd)
+      {
+        EndPickWindow(hwnd, false);
+        return 0;
+      }
+    break;
+  }
+
+  return CallWindowProc(s_pickwnd_oldproc, hwnd, uMsg, wParam, lParam);
+}
+
+static void InitPickWindowButton(HWND hwndDlg)
+{
+  HWND button = GetDlgItem(hwndDlg, IDC_PICKWND);
+  if (button && !s_pickwnd_oldproc)
+  {
+    s_pickwnd_oldproc = (WNDPROC)SetWindowLongPtr(button, GWLP_WNDPROC, (LONG_PTR)PickWindowButtonProc);
+  }
+}
+
+static void DestroyPickWindowButton(HWND hwndDlg)
+{
+  HWND button = GetDlgItem(hwndDlg, IDC_PICKWND);
+  if (button && s_pickwnd_active) EndPickWindow(button, false);
+  if (button && s_pickwnd_oldproc)
+  {
+    SetWindowLongPtr(button, GWLP_WNDPROC, (LONG_PTR)s_pickwnd_oldproc);
+    s_pickwnd_oldproc = NULL;
+  }
+}
+
+#endif
+
 void SWELL_SetWindowResizeable(HWND, bool);
 
 void Capture_Finish(HWND hwndDlg)
@@ -1129,10 +1345,14 @@ static WDL_DLGRET liceCapMainProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM
       g_wndsize.init_item(IDC_YSZ,0,1,0,1);
       g_wndsize.init_item(IDC_DIMLBL_1,0,1,0,1);
       g_wndsize.init_item(IDC_DIMLBL,0,1,0,1);
+      g_wndsize.init_item(IDC_PICKWND,0,1,0,1);
       g_wndsize.init_item(IDC_STATUS,0,1,1,1);
       g_wndsize.init_item(IDC_REC,1,1,1,1);
       g_wndsize.init_item(IDC_STOP,1,1,1,1);
       g_wndsize.init_item(IDC_INSERT,1,1,1,1);
+#ifdef _WIN32
+      InitPickWindowButton(hwndDlg);
+#endif
       
       ShowWindow(GetDlgItem(hwndDlg, IDC_INSERT), SW_HIDE);
       SendMessage(hwndDlg,WM_SIZE,0,0);
@@ -1188,6 +1408,9 @@ static WDL_DLGRET liceCapMainProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM
     return 1;
     case WM_DESTROY:
 
+#ifdef _WIN32
+      DestroyPickWindowButton(hwndDlg);
+#endif
       Capture_Finish(hwndDlg);
 
       SaveConfig(hwndDlg);
