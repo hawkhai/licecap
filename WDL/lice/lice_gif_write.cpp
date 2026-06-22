@@ -8,6 +8,11 @@
 #include "lice.h"
 
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#ifndef _WIN32
+#include <dlfcn.h>
+#endif
 
 #include "../wdltypes.h"
 #include "../filewrite.h"
@@ -488,4 +493,364 @@ bool LICE_WriteGIF(const char *filename, LICE_IBitmap *bmp, int transparent_alph
   LICE_WriteGIFFrame(wr,bmp,0,0,false,0);
 
   return LICE_WriteGIFEnd(wr);
+}
+
+typedef struct WebPMux WebPMux;
+
+typedef enum WebPMuxError {
+  WEBP_MUX_OK = 1,
+  WEBP_MUX_NOT_FOUND = 0,
+  WEBP_MUX_INVALID_ARGUMENT = -1,
+  WEBP_MUX_BAD_DATA = -2,
+  WEBP_MUX_MEMORY_ERROR = -3,
+  WEBP_MUX_NOT_ENOUGH_DATA = -4
+} WebPMuxError;
+
+typedef enum WebPChunkId {
+  WEBP_CHUNK_VP8X,
+  WEBP_CHUNK_ICCP,
+  WEBP_CHUNK_ANIM,
+  WEBP_CHUNK_ANMF,
+  WEBP_CHUNK_DEPRECATED,
+  WEBP_CHUNK_ALPHA,
+  WEBP_CHUNK_IMAGE,
+  WEBP_CHUNK_EXIF,
+  WEBP_CHUNK_XMP,
+  WEBP_CHUNK_UNKNOWN,
+  WEBP_CHUNK_NIL
+} WebPChunkId;
+
+typedef enum WebPMuxAnimDispose {
+  WEBP_MUX_DISPOSE_NONE,
+  WEBP_MUX_DISPOSE_BACKGROUND
+} WebPMuxAnimDispose;
+
+typedef enum WebPMuxAnimBlend {
+  WEBP_MUX_BLEND,
+  WEBP_MUX_NO_BLEND
+} WebPMuxAnimBlend;
+
+struct WebPData {
+  const unsigned char *bytes;
+  size_t size;
+};
+
+struct WebPMuxAnimParams {
+  unsigned int bgcolor;
+  int loop_count;
+};
+
+struct WebPMuxFrameInfo {
+  WebPData bitstream;
+  int x_offset;
+  int y_offset;
+  int duration;
+  WebPChunkId id;
+  WebPMuxAnimDispose dispose_method;
+  WebPMuxAnimBlend blend_method;
+  unsigned int pad[1];
+};
+
+#define LICE_WEBP_MUX_ABI_VERSION 0x0109
+
+struct liceWebPLib
+{
+  bool tried;
+  bool ok;
+#ifdef _WIN32
+  HMODULE webp;
+  HMODULE mux;
+#else
+  void *webp;
+  void *mux;
+#endif
+
+  size_t (*WebPEncodeBGRA)(const unsigned char *, int, int, int, float, unsigned char **);
+  size_t (*WebPEncodeLosslessBGRA)(const unsigned char *, int, int, int, unsigned char **);
+  void (*WebPFree)(void *);
+  WebPMux *(*WebPNewInternal)(int);
+  void (*WebPMuxDelete)(WebPMux *);
+  WebPMuxError (*WebPMuxSetAnimationParams)(WebPMux *, const WebPMuxAnimParams *);
+  WebPMuxError (*WebPMuxSetCanvasSize)(WebPMux *, int, int);
+  WebPMuxError (*WebPMuxPushFrame)(WebPMux *, const WebPMuxFrameInfo *, int);
+  WebPMuxError (*WebPMuxAssemble)(WebPMux *, WebPData *);
+};
+
+static liceWebPLib g_webp_lib;
+
+static void *lice_webp_load_library(const char **names)
+{
+  int x;
+  for (x=0; names[x]; ++x)
+  {
+#ifdef _WIN32
+    HMODULE h = LoadLibraryA(names[x]);
+#else
+    void *h = dlopen(names[x], RTLD_LAZY);
+#endif
+    if (h) return h;
+  }
+  return NULL;
+}
+
+static void *lice_webp_get_proc(void *lib, const char *name)
+{
+  if (!lib) return NULL;
+#ifdef _WIN32
+  return (void *)GetProcAddress((HMODULE)lib, name);
+#else
+  return dlsym(lib, name);
+#endif
+}
+
+static bool lice_webp_load()
+{
+  if (g_webp_lib.tried) return g_webp_lib.ok;
+  g_webp_lib.tried = true;
+
+#ifdef _WIN32
+  const char *webp_names[] = { "libwebp.dll", "webp.dll", "libwebp-7.dll", NULL };
+  const char *mux_names[] = { "libwebpmux.dll", "webpmux.dll", "libwebpmux-3.dll", NULL };
+#else
+#ifdef __APPLE__
+  const char *webp_names[] = { "libwebp.dylib", "libwebp.7.dylib", NULL };
+  const char *mux_names[] = { "libwebpmux.dylib", "libwebpmux.3.dylib", NULL };
+#else
+  const char *webp_names[] = { "libwebp.so", "libwebp.so.7", NULL };
+  const char *mux_names[] = { "libwebpmux.so", "libwebpmux.so.3", NULL };
+#endif
+#endif
+
+#ifdef _WIN32
+  g_webp_lib.webp = (HMODULE)lice_webp_load_library(webp_names);
+  g_webp_lib.mux = (HMODULE)lice_webp_load_library(mux_names);
+#else
+  g_webp_lib.webp = lice_webp_load_library(webp_names);
+  g_webp_lib.mux = lice_webp_load_library(mux_names);
+#endif
+  if (!g_webp_lib.webp || !g_webp_lib.mux) return false;
+
+  *(void **)&g_webp_lib.WebPEncodeBGRA = lice_webp_get_proc(g_webp_lib.webp, "WebPEncodeBGRA");
+  *(void **)&g_webp_lib.WebPEncodeLosslessBGRA = lice_webp_get_proc(g_webp_lib.webp, "WebPEncodeLosslessBGRA");
+  *(void **)&g_webp_lib.WebPFree = lice_webp_get_proc(g_webp_lib.webp, "WebPFree");
+  *(void **)&g_webp_lib.WebPNewInternal = lice_webp_get_proc(g_webp_lib.mux, "WebPNewInternal");
+  *(void **)&g_webp_lib.WebPMuxDelete = lice_webp_get_proc(g_webp_lib.mux, "WebPMuxDelete");
+  *(void **)&g_webp_lib.WebPMuxSetAnimationParams = lice_webp_get_proc(g_webp_lib.mux, "WebPMuxSetAnimationParams");
+  *(void **)&g_webp_lib.WebPMuxSetCanvasSize = lice_webp_get_proc(g_webp_lib.mux, "WebPMuxSetCanvasSize");
+  *(void **)&g_webp_lib.WebPMuxPushFrame = lice_webp_get_proc(g_webp_lib.mux, "WebPMuxPushFrame");
+  *(void **)&g_webp_lib.WebPMuxAssemble = lice_webp_get_proc(g_webp_lib.mux, "WebPMuxAssemble");
+
+  g_webp_lib.ok = g_webp_lib.WebPEncodeBGRA && g_webp_lib.WebPEncodeLosslessBGRA &&
+                  g_webp_lib.WebPFree && g_webp_lib.WebPNewInternal &&
+                  g_webp_lib.WebPMuxDelete && g_webp_lib.WebPMuxSetAnimationParams &&
+                  g_webp_lib.WebPMuxSetCanvasSize && g_webp_lib.WebPMuxPushFrame &&
+                  g_webp_lib.WebPMuxAssemble;
+  return g_webp_lib.ok;
+}
+
+static unsigned char *lice_webp_encode_bitmap(LICE_IBitmap *bmp, float quality, bool lossless, size_t *sizeOut)
+{
+  if (sizeOut) *sizeOut = 0;
+  if (!bmp || !sizeOut || !lice_webp_load()) return NULL;
+
+  const int w = bmp->getWidth();
+  const int h = bmp->getHeight();
+  if (w < 1 || h < 1 || w > 16383 || h > 16383) return NULL;
+
+  const int stride = w*4;
+  unsigned char *bgra = (unsigned char *)malloc(stride*h);
+  if (!bgra) return NULL;
+
+  int y;
+  for (y=0; y<h; ++y)
+  {
+    const int sy = bmp->isFlipped() ? h-1-y : y;
+    const LICE_pixel *src = bmp->getBits() + sy*bmp->getRowSpan();
+    unsigned char *dst = bgra + y*stride;
+    int x;
+    for (x=0; x<w; ++x)
+    {
+      const LICE_pixel p = src[x];
+      dst[x*4+0] = (unsigned char)LICE_GETB(p);
+      dst[x*4+1] = (unsigned char)LICE_GETG(p);
+      dst[x*4+2] = (unsigned char)LICE_GETR(p);
+      dst[x*4+3] = (unsigned char)(LICE_GETA(p) ? LICE_GETA(p) : 255);
+    }
+  }
+
+  unsigned char *out = NULL;
+  const size_t outsz = lossless ?
+    g_webp_lib.WebPEncodeLosslessBGRA(bgra, w, h, stride, &out) :
+    g_webp_lib.WebPEncodeBGRA(bgra, w, h, stride, quality, &out);
+
+  free(bgra);
+  if (!out || !outsz) return NULL;
+
+  *sizeOut = outsz;
+  return out;
+}
+
+struct liceWebPWriteRec
+{
+  char *filename;
+  WebPMux *mux;
+  int w;
+  int h;
+  int frame_count;
+  float quality;
+  bool lossless;
+  unsigned int output_size;
+};
+
+void *LICE_WriteWebPBeginNoFrame(const char *filename, int w, int h, int nreps, float quality, bool lossless)
+{
+  if (!filename || !*filename || w < 1 || h < 1 || w > 16383 || h > 16383 || !lice_webp_load()) return NULL;
+
+  liceWebPWriteRec *wr = (liceWebPWriteRec *)calloc(sizeof(liceWebPWriteRec),1);
+  if (!wr) return NULL;
+
+  wr->filename = (char *)malloc(strlen(filename)+1);
+  if (!wr->filename)
+  {
+    free(wr);
+    return NULL;
+  }
+  strcpy(wr->filename, filename);
+
+  wr->mux = g_webp_lib.WebPNewInternal(LICE_WEBP_MUX_ABI_VERSION);
+  if (!wr->mux)
+  {
+    free(wr->filename);
+    free(wr);
+    return NULL;
+  }
+
+  wr->w = w;
+  wr->h = h;
+  wr->quality = quality < 0.0f ? 0.0f : (quality > 100.0f ? 100.0f : quality);
+  wr->lossless = lossless;
+
+  WebPMuxAnimParams params;
+  params.bgcolor = 0x000000ff;
+  params.loop_count = nreps;
+
+  if (g_webp_lib.WebPMuxSetCanvasSize(wr->mux, w, h) != WEBP_MUX_OK ||
+      g_webp_lib.WebPMuxSetAnimationParams(wr->mux, &params) != WEBP_MUX_OK)
+  {
+    LICE_WriteWebPEnd(wr);
+    return NULL;
+  }
+
+  return wr;
+}
+
+void *LICE_WriteWebPBegin(const char *filename, LICE_IBitmap *firstframe, int frame_delay, int nreps, float quality, bool lossless)
+{
+  if (!firstframe) return NULL;
+  void *wr = LICE_WriteWebPBeginNoFrame(filename, firstframe->getWidth(), firstframe->getHeight(), nreps, quality, lossless);
+  if (wr && !LICE_WriteWebPFrame(wr, firstframe, frame_delay))
+  {
+    LICE_WriteWebPEnd(wr);
+    return NULL;
+  }
+  return wr;
+}
+
+bool LICE_WriteWebPFrame(void *handle, LICE_IBitmap *frame, int frame_delay)
+{
+  liceWebPWriteRec *wr = (liceWebPWriteRec *)handle;
+  if (!wr || !wr->mux || !frame) return false;
+  if (frame->getWidth() != wr->w || frame->getHeight() != wr->h) return false;
+
+  size_t bitstream_size = 0;
+  unsigned char *bitstream = lice_webp_encode_bitmap(frame, wr->quality, wr->lossless, &bitstream_size);
+  if (!bitstream) return false;
+
+  WebPMuxFrameInfo info;
+  memset(&info, 0, sizeof(info));
+  info.bitstream.bytes = bitstream;
+  info.bitstream.size = bitstream_size;
+  info.duration = frame_delay < 1 ? 1 : frame_delay;
+  info.id = WEBP_CHUNK_ANMF;
+  info.dispose_method = WEBP_MUX_DISPOSE_NONE;
+  info.blend_method = WEBP_MUX_NO_BLEND;
+
+  const bool ok = g_webp_lib.WebPMuxPushFrame(wr->mux, &info, 1) == WEBP_MUX_OK;
+  g_webp_lib.WebPFree(bitstream);
+
+  if (ok) ++wr->frame_count;
+  return ok;
+}
+
+unsigned int LICE_WriteWebPGetSize(void *handle)
+{
+  liceWebPWriteRec *wr = (liceWebPWriteRec *)handle;
+  return wr ? wr->output_size : 0;
+}
+
+bool LICE_WriteWebPEnd(void *handle)
+{
+  liceWebPWriteRec *wr = (liceWebPWriteRec *)handle;
+  if (!wr) return false;
+
+  bool ok = false;
+  if (wr->mux && wr->frame_count > 0)
+  {
+    WebPData data;
+    data.bytes = NULL;
+    data.size = 0;
+
+    if (g_webp_lib.WebPMuxAssemble(wr->mux, &data) == WEBP_MUX_OK && data.bytes && data.size > 0)
+    {
+      WDL_FileWrite fp(wr->filename, 1, 65536, 16, 16, false);
+      if (fp.IsOpen())
+      {
+        size_t written = 0;
+        while (written < data.size)
+        {
+          int amt = data.size - written > 0x40000000 ? 0x40000000 : (int)(data.size - written);
+          int rv = fp.Write(data.bytes + written, amt);
+          if (rv <= 0) break;
+          written += rv;
+        }
+        ok = written == data.size;
+        if (ok) wr->output_size = (unsigned int)(data.size > 0xffffffffU ? 0xffffffffU : data.size);
+      }
+    }
+
+    if (data.bytes) g_webp_lib.WebPFree((void *)data.bytes);
+  }
+
+  if (wr->mux) g_webp_lib.WebPMuxDelete(wr->mux);
+  free(wr->filename);
+  free(wr);
+
+  return ok;
+}
+
+bool LICE_WriteWebP(const char *filename, LICE_IBitmap *bmp, float quality, bool lossless)
+{
+  if (!filename || !*filename || !bmp) return false;
+
+  size_t bitstream_size = 0;
+  unsigned char *bitstream = lice_webp_encode_bitmap(bmp, quality, lossless, &bitstream_size);
+  if (!bitstream) return false;
+
+  bool ok = false;
+  WDL_FileWrite fp(filename, 1, 65536, 16, 16, false);
+  if (fp.IsOpen())
+  {
+    size_t written = 0;
+    while (written < bitstream_size)
+    {
+      int amt = bitstream_size - written > 0x40000000 ? 0x40000000 : (int)(bitstream_size - written);
+      int rv = fp.Write(bitstream + written, amt);
+      if (rv <= 0) break;
+      written += rv;
+    }
+    ok = written == bitstream_size;
+  }
+
+  g_webp_lib.WebPFree(bitstream);
+  return ok;
 }

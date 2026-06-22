@@ -7,7 +7,7 @@
 //
 // Generated from the TEXTINCLUDE 2 resource.
 //
-#include "afxres.h"
+#include "winres.h"
 
 /////////////////////////////////////////////////////////////////////////////
 #undef APSTUDIO_READONLY_SYMBOLS
@@ -65,9 +65,9 @@ BEGIN
     PUSHBUTTON      "WEBM options...",IDC_BUTTON1,238,77,75,14
     CONTROL         "Control+Alt+P pauses recording",IDC_SSPAUSE,"Button",
                     BS_AUTOCHECKBOX | WS_TABSTOP,105,46,115,10
-    LTEXT           ".GIF repeat count (0=infinite):",IDC_STATIC,0,63,92,8
+    LTEXT           "Repeat count (0=infinite):",IDC_STATIC,0,63,92,8
     EDITTEXT        IDC_LOOPCNT,94,61,34,13,ES_AUTOHSCROLL
-    CONTROL         "Use .GIF transparency for smaller files",IDC_CHECK1,
+    CONTROL         "Use GIF transparency optimization",IDC_CHECK1,
                     "Button",BS_AUTOCHECKBOX | WS_TABSTOP,132,62,134,10
     CONTROL         "Automatically stop after",IDC_CHECK2,"Button",
                     BS_AUTOCHECKBOX | WS_TABSTOP,2,78,87,10
@@ -153,7 +153,7 @@ END
 
 2 TEXTINCLUDE DISCARDABLE 
 BEGIN
-    "#include ""afxres.h""\r\n"
+    "#include ""winres.h""\r\n"
     "\0"
 END
 

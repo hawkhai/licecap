@@ -91,6 +91,7 @@ class gif_encoder
 
   LICE_IBitmap *lastbm; // set if a new frame is in progress
   void *ctx; 
+  bool is_webp;
 
   int lastbm_coords[4]; // coordinates of previous frame which need to be updated, [2], [3] will always be >0 if in progress
   int lastbm_accumdelay; // delay of previous frame which is latent
@@ -100,21 +101,25 @@ class gif_encoder
 public:
 
 
-  gif_encoder(void *gifctx, int use_loopcnt, int trans_chan_mask=0xff)
+  gif_encoder(void *gifctx, int use_loopcnt, int trans_chan_mask=0xff, bool use_webp=false)
   {
     lastbm = NULL;
     memset(lastbm_coords,0,sizeof(lastbm_coords));
     lastbm_accumdelay = 0;
     ctx=gifctx;
+    is_webp=use_webp;
     loopcnt=use_loopcnt;
     trans_mask = LICE_RGBA(trans_chan_mask,trans_chan_mask,trans_chan_mask,0);
   }
   ~gif_encoder()
   {
     frame_finish();
-    LICE_WriteGIFEnd(ctx);
+    if (is_webp) LICE_WriteWebPEnd(ctx);
+    else LICE_WriteGIFEnd(ctx);
     delete lastbm;
   }
+
+  const char *get_format_name() { return is_webp ? "WEBP" : "GIF"; }
   
   
   bool frame_compare(LICE_IBitmap *bm, int diffs[4])
@@ -129,11 +134,17 @@ public:
   {
     if (ctx && lastbm && lastbm_coords[2] > 0 && lastbm_coords[3] > 0)
     {
-      LICE_SubBitmap bm(lastbm, lastbm_coords[0],lastbm_coords[1], lastbm_coords[2],lastbm_coords[3]);
-      
       int del = lastbm_accumdelay;
       if (del<1) del=1;
-      LICE_WriteGIFFrame(ctx,&bm,lastbm_coords[0],lastbm_coords[1],true,del,loopcnt);
+      if (is_webp)
+      {
+        LICE_WriteWebPFrame(ctx,lastbm,del);
+      }
+      else
+      {
+        LICE_SubBitmap bm(lastbm, lastbm_coords[0],lastbm_coords[1], lastbm_coords[2],lastbm_coords[3]);
+        LICE_WriteGIFFrame(ctx,&bm,lastbm_coords[0],lastbm_coords[1],true,del,loopcnt);
+      }
     }
     lastbm_accumdelay=0;
     lastbm_coords[2]=lastbm_coords[3]=0;
@@ -149,14 +160,24 @@ public:
     if (w > 0 && h > 0)
     {
       frame_finish();
-    
-      lastbm_coords[0]=x;
-      lastbm_coords[1]=y;
-      lastbm_coords[2]=w;
-      lastbm_coords[3]=h;
-    
+
       if (!lastbm) lastbm = LICE_CreateMemBitmap(ref->getWidth(), ref->getHeight());
-      LICE_Blit(lastbm, ref, x, y, x,y, w,h, 1.0f, LICE_BLIT_MODE_COPY);
+      if (is_webp)
+      {
+        lastbm_coords[0]=0;
+        lastbm_coords[1]=0;
+        lastbm_coords[2]=ref->getWidth();
+        lastbm_coords[3]=ref->getHeight();
+        LICE_Copy(lastbm, ref);
+      }
+      else
+      {
+        lastbm_coords[0]=x;
+        lastbm_coords[1]=y;
+        lastbm_coords[2]=w;
+        lastbm_coords[3]=h;
+        LICE_Blit(lastbm, ref, x, y, x,y, w,h, 1.0f, LICE_BLIT_MODE_COPY);
+      }
     }
   }
   
@@ -580,7 +601,11 @@ void UpdateStatusText(HWND hwndDlg)
     lstrcatn(buf,g_cap_video_ext,sizeof(buf));
   }
 #endif
-  if (g_cap_gif) lstrcatn(buf, " GIF", sizeof(buf));
+  if (g_cap_gif)
+  {
+    lstrcatn(buf, " ", sizeof(buf));
+    lstrcatn(buf, g_cap_gif->get_format_name(), sizeof(buf));
+  }
   
   if (g_cap_state)
   {
@@ -1507,6 +1532,7 @@ static WDL_DLGRET liceCapMainProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM
           {
             //g_title[0]=0;
             const char *tab[][2]={
+              { "Animated WebP files (*.webp)\0*.webp\0", ".webp" },
               { "GIF files (*.gif)\0*.gif\0", ".gif" },
             #ifndef NO_LCF_SUPPORT
               { "LiceCap files (*.lcf)\0*.lcf\0", ".lcf" },
@@ -1519,11 +1545,19 @@ static WDL_DLGRET liceCapMainProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM
 
             WDL_Queue qb;
             int bm=0;
-            const int lfnlen=strlen(g_last_fn);
+            size_t lfnlen=strlen(g_last_fn);
+            if (lfnlen > 4 && !stricmp(g_last_fn+lfnlen-4,".gif"))
+            {
+              if (lfnlen+1 < sizeof(g_last_fn))
+              {
+                strcpy(g_last_fn+lfnlen-4,".webp");
+                lfnlen=strlen(g_last_fn);
+              }
+            }
             int x;
             if (lfnlen >= 3) for (x=0;tab[x][0];x++)
             {
-              const int tx1l = strlen(tab[x][1]);
+              const size_t tx1l = strlen(tab[x][1]);
               if (lfnlen > tx1l && !stricmp(g_last_fn + lfnlen - tx1l, tab[x][1])) 
               {
                 bm=x;
@@ -1586,7 +1620,14 @@ static WDL_DLGRET liceCapMainProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM
 
               g_dotitle = ((g_prefs&1) && g_titlems);
 
-              if (strlen(g_last_fn)>4 && !stricmp(g_last_fn+strlen(g_last_fn)-4,".gif"))
+              if (strlen(g_last_fn)>5 && !stricmp(g_last_fn+strlen(g_last_fn)-5,".webp"))
+              {
+                void *ctx = LICE_WriteWebPBeginNoFrame(g_last_fn,w,h,g_gif_loopcount,90.0f,false);
+                if (ctx) g_cap_gif = new gif_encoder(ctx,g_gif_loopcount,0xff,true);
+                else MessageBox(hwndDlg,"Error initializing Animated WebP writer. Make sure libwebp and libwebpmux are available to LICEcap.","LICEcap",MB_OK);
+                g_cap_gif_lastsec_written = -1;
+              }
+              else if (strlen(g_last_fn)>4 && !stricmp(g_last_fn+strlen(g_last_fn)-4,".gif"))
               {
                 void *ctx = LICE_WriteGIFBeginNoFrame(g_last_fn,w,h,(g_prefs&32) ? (-1)&~7 : 0,true);
                 if (ctx) g_cap_gif = new gif_encoder(ctx,g_gif_loopcount,0xf8);

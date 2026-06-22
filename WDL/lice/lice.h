@@ -381,6 +381,7 @@ LICE_IBitmap *LICE_LoadPCX(const char *filename, LICE_IBitmap *bmp=NULL); // ret
 bool LICE_WritePNG(const char *filename, LICE_IBitmap *bmp, bool wantalpha=true);
 bool LICE_WriteJPG(const char *filename, LICE_IBitmap *bmp, int quality=95, bool force_baseline=true);
 bool LICE_WriteGIF(const char *filename, LICE_IBitmap *bmp, int transparent_alpha=0, bool dither=true); // if alpha<transparent_alpha then transparent. if transparent_alpha<0, then intra-frame checking is used
+bool LICE_WriteWebP(const char *filename, LICE_IBitmap *bmp, float quality=90.0f, bool lossless=false);
 
 // animated GIF API. use transparent_alpha=-1 to encode unchanged pixels as transparent
 void *LICE_WriteGIFBegin(const char *filename, LICE_IBitmap *firstframe, int transparent_alpha=0, int frame_delay=0, bool dither=true, int nreps=0); // nreps=0 for infinite
@@ -389,6 +390,13 @@ bool LICE_WriteGIFFrame(void *handle, LICE_IBitmap *frame, int xpos, int ypos, b
 unsigned int LICE_WriteGIFGetSize(void *handle); // gets current output size
 bool LICE_WriteGIFEnd(void *handle);
 int LICE_SetGIFColorMapFromOctree(void *wr, void *octree, int numcolors); // can use after LICE_WriteGIFBeginNoFrame and before LICE_WriteGIFFrame
+
+// animated WebP API. Requires libwebp/libwebpmux at runtime when dynamically loaded.
+void *LICE_WriteWebPBegin(const char *filename, LICE_IBitmap *firstframe, int frame_delay=0, int nreps=0, float quality=90.0f, bool lossless=false);
+void *LICE_WriteWebPBeginNoFrame(const char *filename, int w, int h, int nreps=0, float quality=90.0f, bool lossless=false);
+bool LICE_WriteWebPFrame(void *handle, LICE_IBitmap *frame, int frame_delay=0);
+unsigned int LICE_WriteWebPGetSize(void *handle);
+bool LICE_WriteWebPEnd(void *handle);
 
 // animated GIF reading
 void *LICE_GIF_LoadEx(const char *filename);

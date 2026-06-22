@@ -82,7 +82,28 @@ int main(int argc, char **argv)
     {
       int x;
 
-      if (strstr(argv[3],".gif"))
+      if (strstr(argv[3],".webp"))
+      {
+        void *wr=LICE_WriteWebPBeginNoFrame(argv[3],tc.GetWidth(),tc.GetHeight(),0,90.0f,false);
+        if (wr)
+        {
+          for (x=0;!g_done;x++)
+          {
+            LICE_IBitmap *bm = tc.GetCurrentFrame();
+            if (!bm) break;
+            int del = tc.GetTimeToNextFrame();
+            if (del<1) del=1;
+            LICE_WriteWebPFrame(wr,bm,del);
+            tc.NextFrame();
+          }
+          LICE_WriteWebPEnd(wr);
+        }
+        else
+        {
+           printf("error writing webp '%s'\n",argv[3]);
+        }
+      }
+      else if (strstr(argv[3],".gif"))
       {
         void *wr=LICE_WriteGIFBeginNoFrame(argv[3],tc.GetWidth(),tc.GetHeight(),0,true);
 
@@ -200,15 +221,17 @@ int main(int argc, char **argv)
 
     LICE_MemBitmap *lastbm=NULL;
 
-    bool gifMode=false,pngMode=false;
+    bool gifMode=false,pngMode=false,webpMode=false;
     if (strstr(argv[2],".gif")) gifMode=true;
     if (strstr(argv[2],".png")) pngMode=true;
+    if (strstr(argv[2],".webp")) webpMode=true;
 
     LICECaptureCompressor *tc = NULL;
     void *gif_wr=NULL;
+    void *webp_wr=NULL;
     
-    if (!gifMode&&!pngMode) tc = new LICECaptureCompressor(argv[2],r.right,r.bottom);
-    if (gifMode||pngMode||tc->IsOpen())
+    if (!gifMode&&!pngMode&&!webpMode) tc = new LICECaptureCompressor(argv[2],r.right,r.bottom);
+    if (gifMode||pngMode||webpMode||tc->IsOpen())
     {
       printf("Encoding %dx%d target %.1f fps (press Ctrl+C to stop):\n",r.right,r.bottom,1000.0/fr);
 
@@ -271,6 +294,22 @@ int main(int argc, char **argv)
 
           if (lastbm) LICE_Copy(lastbm,&bm);
         }
+        else if (webpMode)
+        {
+          if (!webp_wr)
+          {
+            webp_wr=LICE_WriteWebPBeginNoFrame(argv[2],r.right,r.bottom,0,90.0f,false);
+            if (!webp_wr)
+            {
+              printf("error writing to webp\n");
+              break;
+            }
+          }
+
+          int del = thist-lastt;
+          if (del<1) del=1;
+          LICE_WriteWebPFrame(webp_wr,&bm,del);
+        }
         lastt = thist;
     
         while (GetTickCount() < (DWORD) (st + x*fr) && !g_done) Sleep(1);
@@ -295,6 +334,7 @@ int main(int argc, char **argv)
         }
         LICE_WriteGIFEnd(gif_wr);
       }
+      if (webp_wr) LICE_WriteWebPEnd(webp_wr);
       delete lastbm;
       lastbm=0;
 
@@ -309,8 +349,8 @@ int main(int argc, char **argv)
   else 
   {
     printf("usage: \n"
-           "  licecap -d file.lcf fnout[.gif|.png]]  ; converts lcf file to gif (or PNGs)\n"
-           "  licecap -e file.[lcf|gif|png] [maxfps] ; encodes full screen until Ctrl+C\n"
+           "  licecap -d file.lcf fnout[.webp|.gif|.png]]  ; converts lcf file to animated WebP, gif, or PNGs\n"
+           "  licecap -e file.[lcf|webp|gif|png] [maxfps] ; encodes full screen until Ctrl+C\n"
            "Note: if PNG specified, filenames will be file-XXX.png\n"
            );
   }
