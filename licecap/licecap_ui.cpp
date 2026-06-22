@@ -887,15 +887,13 @@ void WriteTextFrame(const char* str, int ms, bool isTitle, int w, int h, double 
   if (g_cap_lcf) 
   {
     int del=0;
-    g_cap_lcf->OnFrame(g_cap_bm, del); 
-    OutputDebugStringA("g_cap_lcf->OnFrame(g_cap_bm, del);");
+    g_cap_lcf->OnFrame(g_cap_bm, del);
     if (!isTitle)
     {
       del = g_pause_time-g_last_frame_capture_time;
       del += ms;
     }
     g_cap_lcf->OnFrame(g_cap_bm, del);
-    OutputDebugStringA("g_cap_lcf->OnFrame(g_cap_bm, del);");
   }
 #endif
 }
@@ -1041,8 +1039,8 @@ static WDL_DLGRET liceCapMainProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM
       UpdateCaption(hwndDlg);
       UpdateStatusText(hwndDlg);
 
-      { // uElapse ÊÇÒÔºÁÃëÖ¸¶¨µÄ¼ÆÊ±¼ä¸ôÖµ
-          const int uElapse = 15; // 15 ºÁÃë¡£
+      { // uElapse æ˜¯ä»¥æ¯«ç§’æŒ‡å®šçš„è®¡æ—¶é—´éš”å€¼
+          const int uElapse = 15; // 15 æ¯«ç§’ã€‚
           SetTimer(hwndDlg, 1, uElapse, NULL);
       }
 
@@ -1171,7 +1169,6 @@ static WDL_DLGRET liceCapMainProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM
                   g_dotitle=false;
                 }
                 g_cap_lcf->OnFrame(g_cap_bm,del);
-                OutputDebugStringA("g_cap_lcf->OnFrame(g_cap_bm,del);");
               }
 #endif
 

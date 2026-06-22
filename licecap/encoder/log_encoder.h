@@ -43,15 +43,7 @@ public:
 
     void frame_finish()
     {
-        if (lastbm && lastbm_coords[2] > 0 && lastbm_coords[3] > 0)
-        {
-            LICE_SubBitmap bm(lastbm, lastbm_coords[0], lastbm_coords[1], lastbm_coords[2], lastbm_coords[3]);
-
-            int del = lastbm_accumdelay;
-            if (del < 1) del = 1;
-
-            //LICE_WriteGIFFrame(ctx, &bm, lastbm_coords[0], lastbm_coords[1], true, del, loopcnt);
-        }
+        // log_encoder 仅记录日志，不写入 GIF 帧
         lastbm_accumdelay = 0;
         lastbm_coords[2] = lastbm_coords[3] = 0;
     }
