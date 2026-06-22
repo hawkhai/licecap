@@ -36,6 +36,7 @@
 #define IDC_CHECK1                      1022
 #define IDC_CHECK2                      1023
 #define IDC_STOPAFTER_SEC_LBL           1024
+#define IDC_CHECK3                      1025
 
 // Next default values for new objects
 // 

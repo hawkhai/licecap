@@ -71,6 +71,8 @@ BEGIN
                     "Button",BS_AUTOCHECKBOX | WS_TABSTOP,132,62,134,10
     CONTROL         "Automatically stop after",IDC_CHECK2,"Button",
                     BS_AUTOCHECKBOX | WS_TABSTOP,2,78,87,10
+    CONTROL         "无损压缩 (GIF)",IDC_CHECK3,"Button",
+                    BS_AUTOCHECKBOX | WS_TABSTOP,132,74,80,10
     EDITTEXT        IDC_STOPAFTER_SEC,92,77,26,13,ES_AUTOHSCROLL
     LTEXT           "seconds",IDC_STOPAFTER_SEC_LBL,120,79,28,8
 END

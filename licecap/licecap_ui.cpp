@@ -771,7 +771,7 @@ static UINT_PTR CALLBACK SaveOptsProc(HWND hwndDlg, UINT msg, WPARAM wParam, LPA
       if (g_prefs&8) CheckDlgButton(hwndDlg, IDC_TIMELINE, BST_CHECKED);
       if (g_prefs&16) CheckDlgButton(hwndDlg, IDC_SSPAUSE, BST_CHECKED);
       if (g_prefs&32) CheckDlgButton(hwndDlg, IDC_CHECK1, BST_CHECKED);
-      
+      if (!(g_prefs&128)) CheckDlgButton(hwndDlg, IDC_CHECK3, BST_CHECKED); // 无损压缩默认开启
 
       if (g_prefs&64) 
       {
@@ -808,6 +808,7 @@ static UINT_PTR CALLBACK SaveOptsProc(HWND hwndDlg, UINT msg, WPARAM wParam, LPA
       if (IsDlgButtonChecked(hwndDlg, IDC_SSPAUSE)) g_prefs |= 16;
       if (IsDlgButtonChecked(hwndDlg, IDC_CHECK1)) g_prefs |= 32;
       if (IsDlgButtonChecked(hwndDlg, IDC_CHECK2)) g_prefs |= 64;
+      if (!IsDlgButtonChecked(hwndDlg, IDC_CHECK3)) g_prefs |= 128; // 未勾选无损 = 启用帧间优化
 
       char buf[256];
       GetDlgItemText(hwndDlg, IDC_MS, buf, sizeof(buf));
@@ -1588,7 +1589,8 @@ static WDL_DLGRET liceCapMainProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM
 
               if (strlen(g_last_fn)>4 && !stricmp(g_last_fn+strlen(g_last_fn)-4,".gif"))
               {
-                void *ctx = LICE_WriteGIFBeginNoFrame(g_last_fn,w,h,(g_prefs&32) ? (-1)&~7 : 0,true);
+                int gif_trans = (g_prefs&128) ? ((g_prefs&32) ? (-1)&~7 : 0) : 0;
+                void *ctx = LICE_WriteGIFBeginNoFrame(g_last_fn,w,h,gif_trans,true);
                 if (ctx) g_cap_gif = new gif_encoder(ctx,g_gif_loopcount,0xf8);
                 g_cap_gif_lastsec_written = -1;
 
